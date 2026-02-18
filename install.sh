@@ -256,7 +256,8 @@ for i, r in enumerate(results[:20], 1):
     if r.get('content'):
         print(f'   {r[\"content\"]}')
     if r.get('engines'):
-        print(f'   [motores: {', '.join(r[\"engines\"])}]')
+        engines = ', '.join(r['engines'])
+        print(f'   [motores: {engines}]')
     print()
 "
 EOF
