@@ -35,6 +35,14 @@ install_homebrew() {
   elif [[ -f "/usr/local/bin/brew" ]]; then
     eval "$(/usr/local/bin/brew shellenv)"
   fi
+
+  # Persist brew in PATH for future terminal sessions
+  local profile="$HOME/.zprofile"
+  if ! grep -q "brew shellenv" "$profile" 2>/dev/null; then
+    echo '' >> "$profile"
+    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$profile"
+    ok "Homebrew agregado al PATH permanentemente ($profile)"
+  fi
   ok "Homebrew instalado"
 }
 
@@ -177,6 +185,13 @@ cat > "$SEARCHX/start.sh" <<'EOF'
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Ensure Homebrew is in PATH (needed for colima and docker when installed via brew)
+if [[ -f "/opt/homebrew/bin/brew" ]]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [[ -f "/usr/local/bin/brew" ]]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
+
 # If using Colima, make sure it's running
 if command -v colima &>/dev/null && ! colima status &>/dev/null 2>&1; then
   echo "Iniciando Colima..."
@@ -214,6 +229,13 @@ EOF
 cat > "$SEARCHX/search.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Ensure Homebrew is in PATH
+if [[ -f "/opt/homebrew/bin/brew" ]]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [[ -f "/usr/local/bin/brew" ]]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
 
 if [ $# -eq 0 ] || [ -z "$1" ]; then
   echo "Uso: search.sh <consulta> [categoría] [idioma] [rango_tiempo] [página]"
