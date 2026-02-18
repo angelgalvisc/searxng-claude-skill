@@ -5,17 +5,21 @@ Permite buscar en internet directamente desde la terminal con `/searxng tu consu
 
 ## Requisitos
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop) instalado y corriendo
-- [Claude Code](https://claude.ai/code) instalado (`npm install -g @anthropic-ai/claude-code`)
+- macOS con terminal
 - `python3` y `curl` (vienen por defecto en macOS)
+- Lo demás (Homebrew, Docker/Colima, Claude Code) se instala automáticamente si no está
 
-## Instalación (una sola línea)
+## Instalación
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TU_USUARIO/searxng-claude-skill/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/angelgalvisc/searxng-claude-skill/main/install.sh -o /tmp/install-searxng.sh && bash /tmp/install-searxng.sh
 ```
 
+> No usar `curl ... | bash` directo — el script necesita una terminal real para pedir
+> la contraseña cuando instala Homebrew o Docker.
+
 El script instala y configura todo automáticamente:
+- Detecta si tienes Docker/Colima y lo instala si es necesario
 - Crea `~/Documents/SearchX/` con los scripts y configuración de Docker
 - Genera una `secret_key` única para tu instancia
 - Crea el skill en `~/.claude/skills/searxng/`

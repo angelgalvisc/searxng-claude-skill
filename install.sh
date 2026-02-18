@@ -16,6 +16,16 @@ echo "────────────────────────�
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 install_homebrew() {
   warn "Homebrew no encontrado. Instalando..."
+
+  # curl | bash pipes stdin, so there's no TTY — Homebrew can't ask for password
+  if [ ! -t 0 ]; then
+    echo ""
+    fail "No se puede instalar Homebrew en modo no-interactivo (curl | bash).
+      Corre esto en tu terminal y vuelve a intentarlo:
+
+      curl -fsSL https://raw.githubusercontent.com/angelgalvisc/searxng-claude-skill/main/install.sh -o /tmp/install-searxng.sh && bash /tmp/install-searxng.sh"
+  fi
+
   info "Se pedirá tu contraseña de administrador una vez."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
