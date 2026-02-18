@@ -38,9 +38,15 @@ install_homebrew() {
 
   # Persist brew in PATH for future terminal sessions
   local profile="$HOME/.zprofile"
-  if ! grep -q "brew shellenv" "$profile" 2>/dev/null; then
+  local brew_bin=""
+  if [[ -f "/opt/homebrew/bin/brew" ]]; then
+    brew_bin="/opt/homebrew/bin/brew"
+  elif [[ -f "/usr/local/bin/brew" ]]; then
+    brew_bin="/usr/local/bin/brew"
+  fi
+  if [ -n "$brew_bin" ] && ! grep -q "brew shellenv" "$profile" 2>/dev/null; then
     echo '' >> "$profile"
-    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$profile"
+    echo "eval \"\$(${brew_bin} shellenv)\"" >> "$profile"
     ok "Homebrew agregado al PATH permanentemente ($profile)"
   fi
   ok "Homebrew instalado"
@@ -114,7 +120,9 @@ command -v python3 &>/dev/null || fail "python3 no encontrado. Instálalo con: b
 command -v curl    &>/dev/null || fail "curl no encontrado."
 ok "python3 y curl disponibles"
 
-command -v claude &>/dev/null || {
+if command -v claude &>/dev/null; then
+  ok "Claude Code disponible"
+else
   warn "Claude Code no encontrado."
   info "Instalando Claude Code..."
   if command -v npm &>/dev/null; then
@@ -123,8 +131,7 @@ command -v claude &>/dev/null || {
   else
     fail "npm no encontrado. Instala Node.js primero: https://nodejs.org"
   fi
-}
-ok "Claude Code disponible"
+fi
 
 ensure_docker
 
@@ -138,7 +145,7 @@ mkdir -p "$SEARCHX/searxng"
 mkdir -p "$SKILL"
 ok "Directorios listos"
 
-# ─── Generate secret key ──────────────────────────────────────────────────────
+# ─── Generate secret key (only if settings.yml doesn't exist yet) ─────────────
 SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
 # ─── docker-compose.yml ───────────────────────────────────────────────────────
@@ -161,8 +168,11 @@ volumes:
 EOF
 ok "docker-compose.yml creado"
 
-# ─── settings.yml ─────────────────────────────────────────────────────────────
-cat > "$SEARCHX/searxng/settings.yml" <<EOF
+# ─── settings.yml (skip if already exists to preserve existing secret key) ────
+if [[ -f "$SEARCHX/searxng/settings.yml" ]]; then
+  ok "searxng/settings.yml ya existe (conservando secret key existente)"
+else
+  cat > "$SEARCHX/searxng/settings.yml" <<EOF
 use_default_settings: true
 
 server:
@@ -177,7 +187,8 @@ search:
     - html
     - json
 EOF
-ok "searxng/settings.yml creado (secret key única generada)"
+  ok "searxng/settings.yml creado (secret key única generada)"
+fi
 
 # ─── start.sh ─────────────────────────────────────────────────────────────────
 cat > "$SEARCHX/start.sh" <<'EOF'
@@ -220,6 +231,14 @@ cat > "$SEARCHX/stop.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# Ensure Homebrew is in PATH (needed for docker when installed via brew)
+if [[ -f "/opt/homebrew/bin/brew" ]]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [[ -f "/usr/local/bin/brew" ]]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
+
 echo "Deteniendo SearXNG..."
 docker compose down
 echo "Listo."
@@ -300,17 +319,12 @@ The user wants to search for: $ARGUMENTS
 
 Follow these steps:
 
-1. **Check if SearXNG is running:**
-   ```
-   docker ps --filter name=searxng-local --format '{{.Status}}'
-   ```
-
-2. **If not running, start it:**
+1. **Ensure SearXNG is running** (this also handles Docker/Colima startup and PATH setup):
    ```
    bash ~/Documents/SearchX/start.sh
    ```
 
-3. **Execute the search** using the search script:
+2. **Execute the search** using the search script:
    ```
    bash ~/Documents/SearchX/search.sh "$ARGUMENTS"
    ```
@@ -320,9 +334,9 @@ Follow these steps:
    - `bash ~/Documents/SearchX/search.sh "query" "general" "es"` (language filter)
    - `bash ~/Documents/SearchX/search.sh "query" "general" "" "week"` (time range: day, week, month, year)
 
-4. **Present the results** to the user in a clean, readable format. Highlight the most relevant results.
+3. **Present the results** to the user in a clean, readable format. Highlight the most relevant results.
 
-5. **If the user wants to read a specific result**, use `WebFetch` on the URL. If WebFetch fails, fall back to:
+4. **If the user wants to read a specific result**, use `WebFetch` on the URL. If WebFetch fails, fall back to:
    ```
    curl -sL -k "URL" | python3 -c "
    import sys
