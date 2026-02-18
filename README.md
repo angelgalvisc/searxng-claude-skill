@@ -1,13 +1,15 @@
 # SearXNG — Claude Code Skill
 
-Instala un motor de búsqueda local (SearXNG) y lo conecta como skill de Claude Code.
-Permite buscar en internet directamente desde la terminal con `/searxng tu consulta`.
+Motor de búsqueda local ([SearXNG](https://github.com/searxng/searxng)) conectado como skill de [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+Busca en internet directamente desde la terminal con `/searxng tu consulta`.
 
-## Requisitos
+SearXNG agrega resultados de Google, Bing, DuckDuckGo y otros motores sin rastreo ni publicidad.
 
-- macOS con terminal
+## Compatibilidad
+
+- macOS Apple Silicon (M1/M2/M3/M4) y macOS Intel
 - `python3` y `curl` (vienen por defecto en macOS)
-- Lo demás (Homebrew, Docker/Colima, Claude Code) se instala automáticamente si no está
+- Todo lo demás se instala automáticamente si no está (Homebrew, Docker/Colima, Claude Code)
 
 ## Instalación
 
@@ -15,53 +17,94 @@ Permite buscar en internet directamente desde la terminal con `/searxng tu consu
 curl -fsSL https://raw.githubusercontent.com/angelgalvisc/searxng-claude-skill/main/install.sh -o /tmp/install-searxng.sh && bash /tmp/install-searxng.sh
 ```
 
-> No usar `curl ... | bash` directo — el script necesita una terminal real para pedir
-> la contraseña cuando instala Homebrew o Docker.
+> **Importante:** No usar `curl ... | bash` — el script necesita una terminal interactiva para pedir la contraseña si instala Homebrew.
 
-El script instala y configura todo automáticamente:
-- Detecta si tienes Docker/Colima y lo instala si es necesario
-- Crea `~/Documents/SearchX/` con los scripts y configuración de Docker
-- Genera una `secret_key` única para tu instancia
-- Crea el skill en `~/.claude/skills/searxng/`
-- Arranca SearXNG y hace una búsqueda de prueba
+### Qué instala
+
+El script detecta qué tienes y solo instala lo que falta:
+
+| Componente | Se instala si falta | Método |
+|---|---|---|
+| Homebrew | Sí | Installer oficial de Homebrew |
+| Docker runtime | Sí | [Colima](https://github.com/abiosoft/colima) via Homebrew (ligero, sin GUI) |
+| Docker CLI + Compose | Sí | Homebrew |
+| Claude Code | Sí | npm |
+| SearXNG | Siempre | Imagen Docker (`searxng/searxng:latest`) |
+
+Archivos creados:
+- `~/Documents/SearchX/` — scripts y configuración de Docker
+- `~/.claude/skills/searxng/` — skill de Claude Code
 
 ## Uso
 
 En cualquier sesión de Claude Code:
 
 ```
-/searxng Colombia noticias hoy
-/searxng Decreto 134 de 2025 sitio:suin-juriscol.gov.co
-/searxng python asyncio tutorial general en week
+/searxng Decreto 134 de 2025 Colombia
+/searxng noticias inteligencia artificial hoy
+/searxng React Server Components tutorial
 ```
 
-### Parámetros avanzados (desde terminal)
+Claude interpreta tu consulta, ejecuta la búsqueda y presenta los resultados. Si quieres leer una página específica de los resultados, solo pídelo.
+
+### Uso directo desde terminal
 
 ```bash
-bash ~/Documents/SearchX/search.sh "query" [categoría] [idioma] [rango_tiempo]
+bash ~/Documents/SearchX/search.sh "consulta" [categoría] [idioma] [rango_tiempo]
+```
 
-# Ejemplos:
+| Parámetro | Valores | Default |
+|---|---|---|
+| categoría | `general`, `images`, `news`, `science`, `files`, `it` | `general` |
+| idioma | `es`, `en`, `de`, `fr`, etc. | auto |
+| rango_tiempo | `day`, `week`, `month`, `year` | sin límite |
+
+Ejemplos:
+
+```bash
 bash ~/Documents/SearchX/search.sh "inteligencia artificial" "news" "es" "week"
 bash ~/Documents/SearchX/search.sh "docker tutorial" "it" "en"
 ```
 
-Categorías disponibles: `general`, `images`, `news`, `science`, `files`, `it`
-
 ## Comandos útiles
 
 ```bash
-# Iniciar SearXNG
+# Iniciar SearXNG (también inicia Colima si es necesario)
 bash ~/Documents/SearchX/start.sh
 
 # Detener SearXNG
 bash ~/Documents/SearchX/stop.sh
-
-# Verificar que está corriendo
-docker ps --filter name=searxng-local
 ```
 
-## Cómo funciona
+## Troubleshooting
 
-SearXNG es un metabuscador open source que agrega resultados de Google, Bing, DuckDuckGo y otros motores, sin rastreo ni publicidad. Corre localmente en Docker en el puerto `8888`.
+**`docker: command not found` al usar el skill**
+Cierra y abre la terminal para que cargue el PATH de Homebrew, o corre:
+```bash
+eval "$(/opt/homebrew/bin/brew shellenv)"
+```
 
-El skill de Claude Code detecta automáticamente si el contenedor está corriendo y lo inicia si es necesario.
+**SearXNG no responde**
+```bash
+bash ~/Documents/SearchX/start.sh
+```
+El script inicia Colima y SearXNG automáticamente.
+
+**Re-instalar sin perder configuración**
+Corre el mismo comando de instalación. El script conserva tu `secret_key` existente y sobreescribe solo los scripts.
+
+## Desinstalar
+
+```bash
+# Detener y eliminar el contenedor
+bash ~/Documents/SearchX/stop.sh
+docker rmi searxng/searxng:latest
+
+# Eliminar archivos
+rm -rf ~/Documents/SearchX
+rm -rf ~/.claude/skills/searxng
+```
+
+## Licencia
+
+Este installer es de uso libre. SearXNG tiene licencia [AGPL-3.0](https://github.com/searxng/searxng/blob/master/LICENSE).
