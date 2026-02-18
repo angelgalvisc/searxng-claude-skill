@@ -7,34 +7,118 @@ ok()   { echo -e "${GREEN}  [ok]${NC} $1"; }
 warn() { echo -e "${YELLOW}  [!]${NC}  $1"; }
 fail() { echo -e "${RED}  [x]${NC}  $1"; exit 1; }
 info() { echo -e "      $1"; }
+step() { echo -e "\n${BOLD}$1${NC}"; }
 
 echo ""
 echo -e "${BOLD}SearXNG — Claude Code Skill Installer${NC}"
 echo "────────────────────────────────────────"
-echo ""
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+install_homebrew() {
+  warn "Homebrew no encontrado. Instalando..."
+  info "Se pedirá tu contraseña de administrador una vez."
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+  # Add brew to PATH for the rest of this script
+  if [[ -f "/opt/homebrew/bin/brew" ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [[ -f "/usr/local/bin/brew" ]]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
+  ok "Homebrew instalado"
+}
+
+install_colima() {
+  warn "Docker no encontrado. Instalando Colima (runtime ligero de Docker)..."
+  brew install colima docker docker-compose
+  ok "Colima y Docker CLI instalados"
+
+  info "Iniciando Colima por primera vez (descarga ~700 MB, solo la primera vez)..."
+  colima start --cpu 2 --memory 2
+  ok "Colima corriendo"
+
+  # Make docker-compose work as a plugin
+  mkdir -p ~/.docker/cli-plugins
+  ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" \
+    ~/.docker/cli-plugins/docker-compose 2>/dev/null || true
+}
+
+ensure_docker() {
+  step "Verificando Docker..."
+
+  if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+    ok "Docker ya está disponible y corriendo"
+    return
+  fi
+
+  # Docker command exists but daemon isn't running (Docker Desktop instalado pero cerrado)
+  if command -v docker &>/dev/null; then
+    warn "Docker está instalado pero no está corriendo."
+
+    # Try to start Docker Desktop if it exists
+    if [[ -d "/Applications/Docker.app" ]]; then
+      info "Abriendo Docker Desktop..."
+      open -a Docker
+      info "Esperando que Docker arranque (hasta 60 seg)..."
+      for i in $(seq 1 60); do
+        if docker info &>/dev/null 2>&1; then
+          ok "Docker Desktop listo"
+          return
+        fi
+        sleep 1
+      done
+      fail "Docker Desktop no arrancó a tiempo. Ábrelo manualmente y vuelve a correr este script."
+    fi
+
+    # Try to start Colima if installed
+    if command -v colima &>/dev/null; then
+      info "Iniciando Colima..."
+      colima start
+      ok "Colima corriendo"
+      return
+    fi
+  fi
+
+  # Nothing available — install via Homebrew
+  warn "Docker no está instalado."
+
+  if ! command -v brew &>/dev/null; then
+    install_homebrew
+  fi
+
+  install_colima
+}
 
 # ─── Prerequisites ────────────────────────────────────────────────────────────
-echo -e "${BOLD}Checking prerequisites...${NC}"
+step "Verificando prerequisitos..."
 
-command -v docker  &>/dev/null || fail "Docker not found. Install Docker Desktop first: https://www.docker.com/products/docker-desktop"
-command -v python3 &>/dev/null || fail "python3 not found. Install it with: brew install python3"
-command -v curl    &>/dev/null || fail "curl not found."
-command -v claude  &>/dev/null || fail "Claude Code not found. Install it with: npm install -g @anthropic-ai/claude-code"
+command -v python3 &>/dev/null || fail "python3 no encontrado. Instálalo con: brew install python3"
+command -v curl    &>/dev/null || fail "curl no encontrado."
+ok "python3 y curl disponibles"
 
-ok "docker, python3, curl, claude — all found"
+command -v claude &>/dev/null || {
+  warn "Claude Code no encontrado."
+  info "Instalando Claude Code..."
+  if command -v npm &>/dev/null; then
+    npm install -g @anthropic-ai/claude-code
+    ok "Claude Code instalado"
+  else
+    fail "npm no encontrado. Instala Node.js primero: https://nodejs.org"
+  fi
+}
+ok "Claude Code disponible"
 
-docker info &>/dev/null || fail "Docker is not running. Please open Docker Desktop and try again."
-ok "Docker is running"
-
-echo ""
+ensure_docker
 
 # ─── Directories ──────────────────────────────────────────────────────────────
+step "Creando estructura de archivos..."
+
 SEARCHX="$HOME/Documents/SearchX"
 SKILL="$HOME/.claude/skills/searxng"
 
 mkdir -p "$SEARCHX/searxng"
 mkdir -p "$SKILL"
-ok "Directories ready"
+ok "Directorios listos"
 
 # ─── Generate secret key ──────────────────────────────────────────────────────
 SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -57,7 +141,7 @@ services:
 volumes:
   searxng-data:
 EOF
-ok "docker-compose.yml created"
+ok "docker-compose.yml creado"
 
 # ─── settings.yml ─────────────────────────────────────────────────────────────
 cat > "$SEARCHX/searxng/settings.yml" <<EOF
@@ -75,7 +159,7 @@ search:
     - html
     - json
 EOF
-ok "searxng/settings.yml created (unique secret key generated)"
+ok "searxng/settings.yml creado (secret key única generada)"
 
 # ─── start.sh ─────────────────────────────────────────────────────────────────
 cat > "$SEARCHX/start.sh" <<'EOF'
@@ -83,20 +167,26 @@ cat > "$SEARCHX/start.sh" <<'EOF'
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# If using Colima, make sure it's running
+if command -v colima &>/dev/null && ! colima status &>/dev/null 2>&1; then
+  echo "Iniciando Colima..."
+  colima start
+fi
+
 if docker ps --format '{{.Names}}' | grep -q '^searxng-local$'; then
-  echo "SearXNG is already running."
+  echo "SearXNG ya está corriendo."
 else
-  echo "Starting SearXNG..."
+  echo "Iniciando SearXNG..."
   docker compose up -d
-  echo "Waiting for SearXNG to be ready..."
-  for i in $(seq 1 15); do
+  echo "Esperando que SearXNG esté listo..."
+  for i in $(seq 1 20); do
     if curl -sf http://localhost:8888/healthz > /dev/null 2>&1; then
-      echo "SearXNG is ready."
+      echo "SearXNG listo."
       exit 0
     fi
     sleep 1
   done
-  echo "SearXNG started (health check timed out, but container is running)."
+  echo "SearXNG iniciado (el contenedor está corriendo)."
 fi
 EOF
 
@@ -105,9 +195,9 @@ cat > "$SEARCHX/stop.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-echo "Stopping SearXNG..."
+echo "Deteniendo SearXNG..."
 docker compose down
-echo "Done."
+echo "Listo."
 EOF
 
 # ─── search.sh ────────────────────────────────────────────────────────────────
@@ -116,12 +206,12 @@ cat > "$SEARCHX/search.sh" <<'EOF'
 set -euo pipefail
 
 if [ $# -eq 0 ] || [ -z "$1" ]; then
-  echo "Usage: search.sh <query> [categories] [language] [time_range] [pageno]"
+  echo "Uso: search.sh <consulta> [categoría] [idioma] [rango_tiempo] [página]"
   echo ""
-  echo "  categories  - general, images, news, science, files, it  (default: general)"
-  echo "  language    - en, es, de, fr ...                          (default: auto)"
-  echo "  time_range  - day, week, month, year                      (default: none)"
-  echo "  pageno      - page number                                  (default: 1)"
+  echo "  categoría   - general, images, news, science, files, it  (default: general)"
+  echo "  idioma      - en, es, de, fr ...                          (default: auto)"
+  echo "  rango_tiempo- day, week, month, year                      (default: ninguno)"
+  echo "  página      - número de página                            (default: 1)"
   exit 1
 fi
 
@@ -137,8 +227,8 @@ PARAMS="q=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.ar
 [ -n "$TIME_RANGE" ] && PARAMS="${PARAMS}&time_range=${TIME_RANGE}"
 
 RESPONSE=$(curl -sf "${BASE_URL}?${PARAMS}" 2>&1) || {
-  echo "Error: Could not connect to SearXNG at localhost:8888"
-  echo "Run ~/Documents/SearchX/start.sh to start the container."
+  echo "Error: No se pudo conectar a SearXNG en localhost:8888"
+  echo "Corre ~/Documents/SearchX/start.sh para iniciar el contenedor."
   exit 1
 }
 
@@ -147,22 +237,22 @@ import json, sys
 data = json.load(sys.stdin)
 results = data.get('results', [])
 if not results:
-    print('No results found.')
+    print('Sin resultados.')
     sys.exit(0)
-print(f'Found {len(results)} results:\n')
+print(f'Se encontraron {len(results)} resultados:\n')
 for i, r in enumerate(results[:20], 1):
-    print(f'{i}. {r.get(\"title\", \"No title\")}')
+    print(f'{i}. {r.get(\"title\", \"Sin título\")}')
     print(f'   URL: {r.get(\"url\", \"\")}')
     if r.get('content'):
         print(f'   {r[\"content\"]}')
     if r.get('engines'):
-        print(f'   [engines: {', '.join(r[\"engines\"])}]')
+        print(f'   [motores: {', '.join(r[\"engines\"])}]')
     print()
 "
 EOF
 
 chmod +x "$SEARCHX/start.sh" "$SEARCHX/stop.sh" "$SEARCHX/search.sh"
-ok "Scripts created and made executable"
+ok "Scripts creados y marcados como ejecutables"
 
 # ─── Claude skill: SKILL.md ───────────────────────────────────────────────────
 cat > "$SKILL/SKILL.md" <<'EOF'
@@ -224,28 +314,26 @@ Follow these steps:
    "
    ```
 EOF
-ok "Claude skill created at ~/.claude/skills/searxng/SKILL.md"
+ok "Claude skill creado en ~/.claude/skills/searxng/SKILL.md"
 
-# ─── Quick test ───────────────────────────────────────────────────────────────
-echo ""
-echo -e "${BOLD}Starting SearXNG for the first time...${NC}"
-info "(This may take a minute to download the Docker image)"
+# ─── Start SearXNG ────────────────────────────────────────────────────────────
+step "Iniciando SearXNG por primera vez..."
+info "(La primera vez descarga la imagen Docker, puede tardar 1-2 minutos)"
 bash "$SEARCHX/start.sh"
 
-echo ""
-echo -e "${BOLD}Running a quick test search...${NC}"
+step "Haciendo búsqueda de prueba..."
 bash "$SEARCHX/search.sh" "test" "general" "" "" 1 | head -10
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "────────────────────────────────────────"
-echo -e "${GREEN}${BOLD}Installation complete!${NC}"
+echo -e "${GREEN}${BOLD}Instalacion completa!${NC}"
 echo ""
-echo "  Usage in Claude Code:"
+echo "  Uso en Claude Code:"
 echo -e "  ${BOLD}/searxng tu busqueda aqui${NC}"
 echo ""
-echo "  Other commands:"
-echo "    Start:  bash ~/Documents/SearchX/start.sh"
-echo "    Stop:   bash ~/Documents/SearchX/stop.sh"
-echo "    Search: bash ~/Documents/SearchX/search.sh \"query\" [category] [lang] [time]"
+echo "  Comandos utiles:"
+echo "    Iniciar:  bash ~/Documents/SearchX/start.sh"
+echo "    Detener:  bash ~/Documents/SearchX/stop.sh"
+echo "    Buscar:   bash ~/Documents/SearchX/search.sh \"consulta\" [categoria] [idioma] [tiempo]"
 echo ""
